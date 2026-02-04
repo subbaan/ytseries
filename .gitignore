@@ -1,0 +1,7 @@
+bin/
+/ytseries
+*.swp
+*.swo
+*~
+.DS_Store
+.claude/
