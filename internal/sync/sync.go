@@ -92,7 +92,8 @@ func (s *Syncer) GetChannelKey(url string) (string, error) {
 
 	// Build yt-dlp command
 	args := []string{"-J", "--flat-playlist",
-		"--extractor-args", "youtube:player_client=android"}
+		"--extractor-args", "youtube:player_client=android",
+		"--js-runtimes=node"}
 
 	// Add cookies if configured
 	if s.cfg.Browser != "" && s.cfg.Browser != "none" {
@@ -155,7 +156,8 @@ func (s *Syncer) SyncChannel(url, channelKey string, progressFunc func(string)) 
 
 	// Build yt-dlp command
 	args := []string{"-J", "--flat-playlist",
-		"--extractor-args", "youtube:player_client=android"}
+		"--extractor-args", "youtube:player_client=android",
+		"--js-runtimes=node"}
 
 	// Add cookies if configured
 	if s.cfg.Browser != "" && s.cfg.Browser != "none" {
@@ -290,6 +292,7 @@ func (s *Syncer) fetchDatesBatch(videoIDs []string, progressFunc func(string)) m
 		args := []string{
 			"-q", "--no-warnings",
 			"--extractor-args", "youtube:player_client=android",
+			"--js-runtimes=node",
 			"--ignore-no-formats-error",
 			"--skip-download", "--no-playlist",
 			"--print", "%(id)s\t%(upload_date)s",

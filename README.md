@@ -41,6 +41,30 @@ This installs `ytseries` to `~/bin`.
 **Runtime:**
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) - Fetches video metadata and handles streaming
 - [mpv](https://mpv.io/) - Video playback (VLC is supported but currently broken due to YouTube streaming issues)
+- [Node.js](https://nodejs.org/) (or [Deno](https://deno.land/)) - JavaScript runtime required by yt-dlp
+
+### Important: JavaScript Runtime Required
+
+Recent yt-dlp versions require a JavaScript runtime (Node.js or Deno) for proper YouTube extraction. Without one, yt-dlp falls back to a degraded API path that provides throttled stream URLs, causing severe buffering during playback.
+
+**ytseries v2.5.4+** passes `--js-runtimes=node` automatically, but you should also install Node.js on your system:
+
+```bash
+# Arch/Manjaro
+sudo pacman -S nodejs
+
+# Ubuntu/Debian
+sudo apt install nodejs
+
+# macOS
+brew install node
+```
+
+For a system-wide fix that benefits all yt-dlp usage, add to `~/.config/yt-dlp/config`:
+
+```
+--js-runtimes=node
+```
 
 ## Quick Start
 

@@ -13,7 +13,7 @@ import (
 	"github.com/subbass/ytseries/internal/tui"
 )
 
-const version = "2.5.3"
+const version = "2.5.4"
 
 func main() {
 	// Parse flags

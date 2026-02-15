@@ -14,7 +14,7 @@ import (
 	"github.com/subbass/ytseries/internal/sync"
 )
 
-const version = "2.5.3"
+const version = "2.5.4"
 
 // Model represents the application state
 type Model struct {

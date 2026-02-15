@@ -158,6 +158,16 @@ All data files use tab-separated values for simplicity and awk-compatibility:
 
 ## Known Issues & Solutions
 
+### yt-dlp JavaScript Runtime Requirement (2026-02)
+
+**Issue**: yt-dlp requires a JavaScript runtime (Node.js or Deno) for proper YouTube extraction. Without one, it falls back to the "android vr player API" which provides throttled/inferior stream URLs, causing severe buffering during playback.
+
+**Solution**: ytseries v2.5.4+ passes `--js-runtimes=node` to all yt-dlp invocations (sync and playback). Users must have Node.js (or Deno) installed on their system.
+
+**Affected locations**:
+- `internal/player/player.go`: `executeMPV()` via ytdl-raw-options, `checkVideoRestriction()` via direct arg
+- `internal/sync/sync.go`: `GetChannelKey()`, `SyncChannel()`, `fetchDatesBatch()` via direct arg
+
 ### YouTube Watch History Resume Position (2026-01)
 
 **Issue**: When using browser cookies for authentication, videos would often start 1-2 minutes (or more) into playback instead of at 0 seconds. This affected ALL videos when cookies were enabled, not just age-restricted ones.
