@@ -47,7 +47,7 @@ This installs `ytseries` to `~/bin`.
 
 Recent yt-dlp versions require a JavaScript runtime (Node.js or Deno) for proper YouTube extraction. Without one, yt-dlp falls back to a degraded API path that provides throttled stream URLs, causing severe buffering during playback.
 
-**ytseries v2.5.4+** passes `--js-runtimes=node` automatically, but you should also install Node.js on your system:
+**ytseries v2.5.5+** passes `--js-runtimes=node` automatically and also skips HLS streams (preferring HTTPS/DASH) to avoid YouTube's aggressive HLS throttling. You should also install Node.js on your system:
 
 ```bash
 # Arch/Manjaro

@@ -89,7 +89,7 @@ func (p *Player) executeMPV(luaScript, url string, useCookies bool) error {
 	// Only use it for metadata fetching (sync operations)
 
 	// Combine all ytdl-raw-options (including force-ipv4 from mpv.conf)
-	ytdlOpts := "force-ipv4=,playlist-start=1,js-runtimes=node"
+	ytdlOpts := "force-ipv4=,playlist-start=1,js-runtimes=node,format-sort=proto,extractor-args=youtube:skip=hls"
 
 	// Add cookies if configured and useCookies is true
 	if useCookies && p.cfg.Browser != "" && p.cfg.Browser != "none" {

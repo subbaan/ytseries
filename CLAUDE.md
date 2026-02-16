@@ -168,6 +168,23 @@ All data files use tab-separated values for simplicity and awk-compatibility:
 - `internal/player/player.go`: `executeMPV()` via ytdl-raw-options, `checkVideoRestriction()` via direct arg
 - `internal/sync/sync.go`: `GetChannelKey()`, `SyncChannel()`, `fetchDatesBatch()` via direct arg
 
+### YouTube HLS Stream Throttling (2026-02)
+
+**Issue**: Even with `--js-runtimes=node` fixing URL extraction, mpv playback still suffered severe buffering/throttling on many videos. YouTube aggressively throttles HLS (m3u8) streams, and mpv uses FFmpeg for data transfer which has not implemented YouTube's throttling workarounds.
+
+**Root Cause**: mpv's FFmpeg-based downloader cannot work around YouTube's HLS throttling. yt-dlp has its own downloader that handles throttling, but mpv bypasses it when streaming directly. HLS formats are the primary target for YouTube's throttling.
+
+**Solution**: ytseries v2.5.5+ passes two additional yt-dlp options during playback:
+- `format-sort=proto` — Sorts formats by protocol, preferring HTTPS/DASH over HLS
+- `extractor-args=youtube:skip=hls` — Removes HLS formats entirely from consideration
+
+Together these ensure mpv receives HTTPS/DASH stream URLs which are not subject to the same aggressive throttling as HLS streams.
+
+**Affected locations**:
+- `internal/player/player.go`: `executeMPV()` via ytdl-raw-options
+
+**Note**: This only affects playback (`internal/player/`), not sync operations (`internal/sync/`). Sync only fetches metadata, not streams.
+
 ### YouTube Watch History Resume Position (2026-01)
 
 **Issue**: When using browser cookies for authentication, videos would often start 1-2 minutes (or more) into playback instead of at 0 seconds. This affected ALL videos when cookies were enabled, not just age-restricted ones.
