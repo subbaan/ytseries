@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -40,6 +41,7 @@ type browseModel struct {
 	cursor         int
 	offset         int
 	height         int
+	width          int
 	searchMode     bool     // Whether in search input mode
 	searchQuery    string   // Current search query
 	filteredVideos []int    // Indices of videos matching search (nil = no filter)
@@ -77,6 +79,7 @@ func newBrowseModel(cfg *config.Config, c *cache.Cache, p *player.Player, ch *ca
 		watched: watched,
 		recent:  recent,
 		height:  20, // Default height, will be updated
+		width:   0,  // Default width, will be updated
 	}, nil
 }
 
@@ -279,6 +282,9 @@ func (m *browseModel) playVideo() tea.Cmd {
 
 			// Play the video (this will block until mpv exits)
 			if err := m.player.Play(m.channel.Name, m.channel.Key, video); err != nil {
+				if errors.Is(err, player.ErrMembersOnly) {
+					return membersOnlyMsg{channelKey: m.channel.Key, channelName: m.channel.Name, video: video}
+				}
 				return playErrorMsg{err}
 			}
 
@@ -307,10 +313,8 @@ func (m *browseModel) render() string {
 	if m.filteredVideos != nil {
 		titleText += fmt.Sprintf(" [%d matches]", len(m.filteredVideos))
 	}
-	s := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle))).
-		Render(titleText) + "\n\n"
+	s := renderTitleBar(titleText, m.width, m.cfg.ColorTitle)
+	s += "\n"
 
 	videoCount := m.getVideoCount()
 	visibleLines := m.height - 5

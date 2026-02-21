@@ -120,27 +120,24 @@ func (m *manageChannelsModel) handleKey(msg tea.KeyMsg) (bool, tea.Cmd, string, 
 }
 
 // render renders the manage channels UI
-func (m *manageChannelsModel) render() string {
+func (m *manageChannelsModel) render(width int) string {
 	// Add channel mode
 	if m.addMode {
-		return m.addModel.render()
+		return m.addModel.render(width, m.cfg.ColorTitle)
 	}
 
 	// Delete confirmations
 	if m.deleteConfirm {
-		return m.deleteConfModel.render()
+		return m.deleteConfModel.render(width, m.cfg.ColorTitle)
 	}
 	if m.deleteConfirm2 {
-		s := m.deleteConfModel2.render()
+		s := m.deleteConfModel2.render(width, m.cfg.ColorTitle)
 		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
 		return s + "\n" + warningStyle.Render("⚠ SECOND CONFIRMATION - This action cannot be undone!")
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle)))
-
-	s := titleStyle.Render("Manage Channels") + "\n\n"
+	s := renderTitleBar("Manage Channels", width, m.cfg.ColorTitle)
+	s += "\n"
 
 	if len(m.channels) == 0 {
 		s += "No channels configured.\n\n"
@@ -254,12 +251,9 @@ func (m *addChannelModel) handleKey(msg tea.KeyMsg) (bool, tea.Cmd, string, stri
 }
 
 // render renders the add channel UI
-func (m *addChannelModel) render() string {
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle)))
-
-	s := titleStyle.Render("Add Channel") + "\n\n"
+func (m *addChannelModel) render(width int, colorTitle int) string {
+	s := renderTitleBar("Add Channel", width, colorTitle)
+	s += "\n"
 
 	// Name input
 	s += "Name: " + m.nameInput.View() + "\n\n"
@@ -308,12 +302,9 @@ func (m *deleteConfirmModel) handleKey(msg tea.KeyMsg) (bool, bool) {
 }
 
 // render renders the delete confirmation dialog
-func (m *deleteConfirmModel) render() string {
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle)))
-
-	s := titleStyle.Render("Delete Channel") + "\n\n"
+func (m *deleteConfirmModel) render(width int, colorTitle int) string {
+	s := renderTitleBar("Delete Channel", width, colorTitle)
+	s += "\n"
 
 	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	s += warningStyle.Render(fmt.Sprintf("Delete channel '%s'?", m.channelName)) + "\n\n"

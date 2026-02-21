@@ -1,6 +1,6 @@
 .PHONY: build install clean test
 
-VERSION := 2.5.5
+VERSION := 2.5.8
 BINDIR := $(HOME)/bin
 
 build:

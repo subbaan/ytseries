@@ -264,11 +264,9 @@ func (m *settingsModel) decrementSetting() {
 }
 
 // renderSettings renders the settings UI
-func (m *settingsModel) render() string {
-	s := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(strconv.Itoa(m.cfg.ColorTitle))).
-		Render("Settings") + "\n\n"
+func (m *settingsModel) render(width int) string {
+	s := renderTitleBar("Settings", width, m.cfg.ColorTitle)
+	s += "\n"
 
 	// Build cookies file path value
 	cookiesValue := ""

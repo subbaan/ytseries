@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/subbass/ytseries/internal/cache"
+	"github.com/subbass/ytseries/internal/player"
 	"github.com/subbass/ytseries/internal/sync"
 )
 
@@ -15,6 +17,7 @@ func (m *Model) playNext() tea.Cmd {
 	}
 
 	ch := m.channels[m.cursor]
+	m.message = "Loading video..."
 
 	return tea.Sequence(
 		tea.ExitAltScreen,
@@ -34,6 +37,9 @@ func (m *Model) playNext() tea.Cmd {
 
 			// Play the video (this will block until mpv exits)
 			if err := m.player.Play(ch.Name, ch.Key, video); err != nil {
+				if errors.Is(err, player.ErrMembersOnly) {
+					return membersOnlyMsg{channelKey: ch.Key, channelName: ch.Name, video: video}
+				}
 				return playErrorMsg{err}
 			}
 
@@ -58,6 +64,7 @@ func (m *Model) playLatest() tea.Cmd {
 	}
 
 	ch := m.channels[m.cursor]
+	m.message = "Loading video..."
 
 	return tea.Sequence(
 		tea.ExitAltScreen,
@@ -77,6 +84,9 @@ func (m *Model) playLatest() tea.Cmd {
 
 			// Play the video (this will block until mpv exits)
 			if err := m.player.Play(ch.Name, ch.Key, video); err != nil {
+				if errors.Is(err, player.ErrMembersOnly) {
+					return membersOnlyMsg{channelKey: ch.Key, channelName: ch.Name, video: video}
+				}
 				return playErrorMsg{err}
 			}
 

@@ -1,6 +1,7 @@
 package player
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,10 @@ import (
 	"github.com/subbass/ytseries/internal/cache"
 	"github.com/subbass/ytseries/internal/config"
 )
+
+// ErrMembersOnly is returned when a video is members-only and cannot be played
+// (either no cookies configured or user is not a member of the channel)
+var ErrMembersOnly = errors.New("members-only content")
 
 // Player handles video playback
 type Player struct {
@@ -50,6 +55,15 @@ func (p *Player) Play(channelName, channelKey string, video *cache.Video) error 
 	return p.playVLC(channelKey, video, videoURL)
 }
 
+// restrictionType categorises why a video requires authentication
+type restrictionType int
+
+const (
+	restrictionNone       restrictionType = iota
+	restrictionAgeGated                   // age-restricted – cookies let YouTube verify age
+	restrictionMembersOnly                // members-only – cookies only help if user is a member
+)
+
 // playMPV plays video with mpv and auto-mark support
 // Uses try-then-retry: first attempts without cookies, retries with cookies if age-restricted
 func (p *Player) playMPV(channelKey string, video *cache.Video, url string) error {
@@ -65,14 +79,21 @@ func (p *Player) playMPV(channelKey string, video *cache.Video, url string) erro
 
 	// If playback failed, check if video requires authentication
 	if err != nil {
-		// Run diagnostic to check why it failed
-		isRestricted, _ := p.checkVideoRestriction(url)
+		restriction, _ := p.checkVideoRestriction(url)
 
-		// If restricted, retry with cookies
-		if isRestricted {
-			fmt.Fprintf(os.Stderr, "\nRestricted video detected, retrying with browser cookies...\n")
-			time.Sleep(1 * time.Second) // Brief pause so user sees message
+		switch restriction {
+		case restrictionAgeGated:
+			fmt.Fprintf(os.Stderr, "\nAge-restricted video detected, retrying with browser cookies...\n")
+			time.Sleep(1 * time.Second)
 			err = p.executeMPV(luaScript, url, true)
+
+		case restrictionMembersOnly:
+			fmt.Fprintf(os.Stderr, "\nMembers-only video detected, trying with browser cookies...\n")
+			time.Sleep(1 * time.Second)
+			err = p.executeMPV(luaScript, url, true)
+			if err != nil {
+				return fmt.Errorf("%w: you must be a channel member with valid browser cookies configured", ErrMembersOnly)
+			}
 		}
 	}
 
@@ -127,9 +148,8 @@ func (p *Player) executeMPV(luaScript, url string, useCookies bool) error {
 	return err
 }
 
-// checkVideoRestriction checks if a video requires authentication by running yt-dlp diagnostic
-func (p *Player) checkVideoRestriction(url string) (bool, string) {
-	// Run yt-dlp to check if video is accessible
+// checkVideoRestriction checks why a video failed by running a yt-dlp diagnostic
+func (p *Player) checkVideoRestriction(url string) (restrictionType, string) {
 	args := []string{
 		"--simulate",
 		"--no-warnings",
@@ -141,30 +161,48 @@ func (p *Player) checkVideoRestriction(url string) (bool, string) {
 	output, err := cmd.CombinedOutput()
 	outputStr := string(output)
 
-	// If yt-dlp fails, check the error message
 	if err != nil {
-		return isAgeRestrictionError(outputStr), outputStr
+		if isMembersOnlyError(outputStr) {
+			return restrictionMembersOnly, outputStr
+		}
+		if isAgeRestrictionError(outputStr) {
+			return restrictionAgeGated, outputStr
+		}
 	}
 
-	return false, outputStr
+	return restrictionNone, outputStr
 }
 
-// isAgeRestrictionError checks if the error output indicates age restriction or login requirement
-func isAgeRestrictionError(stderr string) bool {
-	// Patterns for various YouTube restrictions that require authentication
-	ageErrorPatterns := []string{
-		"Sign in to confirm your age",
+// isAgeRestrictionError checks if the output indicates an age-gate or generic login requirement
+func isAgeRestrictionError(output string) bool {
+	patterns := []string{
+		"sign in to confirm your age",
 		"age-restricted",
 		"age restricted",
 		"inappropriate for some users",
-		"error code: 152",    // Login required
-		"sign in to confirm", // Generic sign-in requirement
-		"members-only",       // Members-only content
+		"error code: 152",
+		"sign in to confirm",
 	}
+	lower := strings.ToLower(output)
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
 
-	stderrLower := strings.ToLower(stderr)
-	for _, pattern := range ageErrorPatterns {
-		if strings.Contains(stderrLower, strings.ToLower(pattern)) {
+// isMembersOnlyError checks if the output indicates members-only content
+func isMembersOnlyError(output string) bool {
+	patterns := []string{
+		"members-only",
+		"members only",
+		"join this channel",
+		"channel membership",
+	}
+	lower := strings.ToLower(output)
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
 			return true
 		}
 	}

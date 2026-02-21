@@ -14,28 +14,32 @@ import (
 	"github.com/subbass/ytseries/internal/sync"
 )
 
-const version = "2.5.5"
+const version = "2.5.8"
 
 // Model represents the application state
 type Model struct {
-	cfg          *config.Config
-	cache        *cache.Cache
-	syncer       *sync.Syncer
-	player       *player.Player
-	channels     []*cache.Channel
-	cursor       int
-	err          error
-	spinner      spinner.Model
-	loading      bool
-	message      string
-	width        int
-	height       int
-	settingsMode bool
-	settings     *settingsModel
-	browseMode   bool
-	browse       *browseModel
-	manageMode   bool
-	manage       *manageChannelsModel
+	cfg             *config.Config
+	cache           *cache.Cache
+	syncer          *sync.Syncer
+	player          *player.Player
+	channels        []*cache.Channel
+	cursor          int
+	err             error
+	spinner         spinner.Model
+	loading         bool
+	message         string
+	width           int
+	height          int
+	settingsMode    bool
+	settings        *settingsModel
+	browseMode      bool
+	browse          *browseModel
+	manageMode      bool
+	manage          *manageChannelsModel
+	confirmSkip     bool         // waiting for y/n after members-only failure
+	skipChannelKey  string
+	skipChannelName string
+	skipVideo       *cache.Video
 }
 
 // New creates a new TUI model
@@ -146,6 +150,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		if m.browse != nil {
 			m.browse.height = msg.Height
+			m.browse.width = msg.Width
 		}
 		return m, nil
 
@@ -180,6 +185,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.message = fmt.Sprintf("Error: %v", msg.err)
 		return m, nil
+
+	case membersOnlyMsg:
+		m.confirmSkip = true
+		m.skipChannelKey = msg.channelKey
+		m.skipChannelName = msg.channelName
+		m.skipVideo = msg.video
+		m.message = ""
+		return m, nil
 	}
 
 	return m, nil
@@ -187,6 +200,45 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKeyPress handles keyboard input
 func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// confirmSkip takes priority over all other modes
+	if m.confirmSkip {
+		switch msg.String() {
+		case "y", "Y":
+			// Mark the members-only video as watched and play the next one
+			key := m.skipChannelKey
+			name := m.skipChannelName
+			vid := m.skipVideo
+			m.confirmSkip = false
+			m.skipChannelKey = ""
+			m.skipChannelName = ""
+			m.skipVideo = nil
+			m.message = ""
+			// Exit browse mode if it was active when the error occurred
+			m.browseMode = false
+			m.browse = nil
+			if err := m.cache.MarkWatched(key, vid.ID); err != nil {
+				m.message = fmt.Sprintf("Error marking watched: %v", err)
+				return m, nil
+			}
+			m.loadChannels()
+			// Restore cursor to the same channel by name
+			for i, ch := range m.channels {
+				if ch.Name == name {
+					m.cursor = i
+					break
+				}
+			}
+			return m, m.playNext()
+		case "n", "N", "esc":
+			m.confirmSkip = false
+			m.skipChannelKey = ""
+			m.skipChannelName = ""
+			m.skipVideo = nil
+			m.message = ""
+		}
+		return m, nil
+	}
+
 	// Settings mode handling
 	if m.settingsMode {
 		exit, cmd := m.settings.handleKey(msg)
@@ -261,6 +313,7 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			browse.height = m.height
+			browse.width = m.width
 			m.browse = browse
 			m.browseMode = true
 		}
@@ -304,9 +357,14 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // View renders the UI
 func (m *Model) View() string {
+	// Modal for members-only skip confirmation (takes priority over all modes)
+	if m.confirmSkip {
+		return m.renderModal()
+	}
+
 	// Settings mode
 	if m.settingsMode {
-		return m.settings.render()
+		return m.settings.render(m.width)
 	}
 
 	// Browse mode
@@ -316,20 +374,21 @@ func (m *Model) View() string {
 
 	// Manage mode
 	if m.manageMode {
-		return m.manage.render()
+		return m.manage.render(m.width)
 	}
 
 	if len(m.channels) == 0 {
-		return "No channels configured. Press 'm' to manage channels\n\nPress q to quit"
+		return renderTitleBar("ytseries v"+version, m.width, m.cfg.ColorTitle) +
+			"\nNo channels configured. Press 'm' to manage channels\n\nPress q to quit"
 	}
 
-	// Title with version, inset by 2 chars
-	s := "  " + lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle))).
-		Render(fmt.Sprintf("ytseries v%s", version)) + "\n\n"
+	// Title bar (line 1)
+	s := renderTitleBar("ytseries v"+version, m.width, m.cfg.ColorTitle)
+	// Blank line after title bar (line 2)
+	s += "\n"
 
-	// Render channel list
+	// Build channel rows
+	var channelRows []string
 	for i, ch := range m.channels {
 		cursor := "  "
 		if i == m.cursor {
@@ -387,36 +446,130 @@ func (m *Model) View() string {
 				Render("All watched")
 		}
 
-		s += fmt.Sprintf("%s%s %s%s%s\n", cursor, name, count, divider, nextInfo)
+		channelRows = append(channelRows, fmt.Sprintf("%s%s %s%s%s", cursor, name, count, divider, nextInfo))
+	}
+
+	// Fixed overhead: title(1) + blank(1) + blank-before-divider(1) + divider(1) + help(1) + status(1) = 6
+	const fixedLines = 6
+	availableLines := m.height - fixedLines
+	if m.height == 0 || availableLines < len(channelRows) {
+		availableLines = len(channelRows)
+	}
+
+	for _, row := range channelRows {
+		s += row + "\n"
+	}
+
+	// Padding to keep footer at a fixed vertical position
+	padding := availableLines - len(channelRows)
+	for i := 0; i < padding; i++ {
+		s += "\n"
 	}
 
 	// Help text
 	help := "n:next  l:latest  b:browse  m:manage  s:sync  S:sync-all  c:settings  q:quit"
 	helpLen := len(help)
 
-	// Divider - 4 chars longer than help text (2 for inset on each side)
-	divider := ""
+	// Divider - 4 chars longer than help text (2 inset on each side)
+	dividerStr := ""
 	for i := 0; i < helpLen+4; i++ {
-		divider += "─"
+		dividerStr += "─"
 	}
 
-	s += "\n" + lipgloss.NewStyle().
+	// Blank line before divider
+	s += "\n"
+	s += lipgloss.NewStyle().
 		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorHelp))).
-		Render(divider) + "\n"
+		Render(dividerStr) + "\n"
 
 	// Help bar inset by 2 chars
 	s += "  " + lipgloss.NewStyle().
 		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorHelp))).
 		Render(help) + "\n"
 
-	// Message/error
-	if m.loading {
-		s += "\n" + m.spinner.View() + " " + m.message
-	} else if m.message != "" {
-		s += "\n" + m.message
-	}
+	// Status bar (always 1 line, no trailing newline)
+	s += m.renderStatusBar()
 
 	return s
+}
+
+// renderTitleBar renders a full-width reverse-colour title bar using the configured
+// title colour as the bar background. When width is 0 falls back to a simple inset title.
+func renderTitleBar(title string, width int, colorTitle int) string {
+	if width == 0 {
+		return lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(fmt.Sprintf("%d", colorTitle))).
+			Render("  "+title) + "\n"
+	}
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(fmt.Sprintf("%d", colorTitle))).
+		Reverse(true).
+		Width(width).
+		Padding(0, 1).
+		Render(title) + "\n"
+}
+
+// renderStatusBar renders a fixed one-line reverse-colour status bar at the bottom.
+// It always shows "Status:" so it is permanently reserved screen space.
+func (m *Model) renderStatusBar() string {
+	var content string
+	if m.loading {
+		content = "Status: " + m.spinner.View() + "  " + m.message
+	} else if m.message != "" {
+		content = "Status: " + m.message
+	} else {
+		content = "Status:"
+	}
+	if m.width == 0 {
+		return lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle))).
+			Render("  " + content)
+	}
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle))).
+		Reverse(true).
+		Width(m.width).
+		Padding(0, 1).
+		Render(content)
+}
+
+// renderModal renders the centred bordered members-only skip confirmation popup.
+func (m *Model) renderModal() string {
+	title := m.skipVideo.Title
+	if len(title) > 52 {
+		title = title[:49] + "..."
+	}
+
+	heading := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle))).
+		Render("Members-Only Video")
+
+	body := lipgloss.JoinVertical(lipgloss.Center,
+		heading,
+		"",
+		title,
+		"",
+		"[y] Skip & mark as watched    [n] Cancel",
+	)
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(fmt.Sprintf("%d", m.cfg.ColorTitle))).
+		Padding(1, 4).
+		Render(body)
+
+	titleBar := renderTitleBar("ytseries v"+version, m.width, m.cfg.ColorTitle)
+	remaining := m.height - 1
+	if remaining < 1 {
+		remaining = 24
+	}
+	placed := lipgloss.Place(m.width, remaining, lipgloss.Center, lipgloss.Center, box)
+	return titleBar + placed
 }
 
 // Messages
@@ -425,3 +578,8 @@ type syncErrorMsg struct{ err error }
 type playCompleteMsg struct{}
 type playErrorMsg struct{ err error }
 type videoMarkedMsg struct{ title string }
+type membersOnlyMsg struct {
+	channelKey  string
+	channelName string
+	video       *cache.Video
+}
