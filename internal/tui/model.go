@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,7 +15,7 @@ import (
 	"github.com/subbass/ytseries/internal/sync"
 )
 
-const version = "2.5.8"
+const version = "2.5.9"
 
 // Model represents the application state
 type Model struct {
@@ -350,6 +351,21 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "S":
 		return m, m.syncAllChannels()
+
+	case "u":
+		if m.cursor < len(m.channels) {
+			ch := m.channels[m.cursor]
+			if ch.NextEpisode != nil {
+				url := "https://www.youtube.com/watch?v=" + ch.NextEpisode.ID
+				if err := clipboard.WriteAll(url); err != nil {
+					m.message = fmt.Sprintf("Clipboard error: %v", err)
+				} else {
+					m.message = "Copied: " + url
+				}
+			} else {
+				m.message = "No video URL to copy"
+			}
+		}
 	}
 
 	return m, nil
@@ -467,7 +483,7 @@ func (m *Model) View() string {
 	}
 
 	// Help text
-	help := "n:next  l:latest  b:browse  m:manage  s:sync  S:sync-all  c:settings  q:quit"
+	help := "n:next  l:latest  b:browse  u:copy-url  m:manage  s:sync  S:sync-all  c:settings  q:quit"
 	helpLen := len(help)
 
 	// Divider - 4 chars longer than help text (2 inset on each side)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/subbass/ytseries/internal/cache"
@@ -45,6 +46,7 @@ type browseModel struct {
 	searchMode     bool     // Whether in search input mode
 	searchQuery    string   // Current search query
 	filteredVideos []int    // Indices of videos matching search (nil = no filter)
+	message        string   // Transient status message (cleared on next keypress)
 }
 
 // newBrowseModel creates a new browse model
@@ -115,6 +117,8 @@ func (m *browseModel) handleKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 			return false, nil
 		}
 	}
+
+	m.message = "" // Clear any transient message on keypress
 
 	switch msg.String() {
 	case "q", "esc", "b":
@@ -201,6 +205,20 @@ func (m *browseModel) handleKey(msg tea.KeyMsg) (bool, tea.Cmd) {
 			if m.cursor < videoCount-1 {
 				m.cursor++
 				m.adjustOffset()
+			}
+		}
+
+	case "u":
+		// Copy video URL to clipboard
+		videoCount := m.getVideoCount()
+		if m.cursor < videoCount {
+			videoIdx := m.getVideoIndex(m.cursor)
+			video := m.videos[videoIdx]
+			url := "https://www.youtube.com/watch?v=" + video.ID
+			if err := clipboard.WriteAll(url); err != nil {
+				m.message = fmt.Sprintf("Clipboard error: %v", err)
+			} else {
+				m.message = "Copied: " + url
 			}
 		}
 	}
@@ -396,10 +414,14 @@ func (m *browseModel) render() string {
 			m.offset+1, endIdx, len(m.videos),
 			len(m.watched), len(m.videos))
 	}
-	s += statusStyle.Render(status) + "\n"
+	if m.message != "" {
+		s += statusStyle.Render(m.message) + "\n"
+	} else {
+		s += statusStyle.Render(status) + "\n"
+	}
 
 	// Help
-	help := "/:search  enter:play  m/space:toggle  j/k:navigate  pgup/pgdn:page  g/G:top/bottom  q/esc/b:back"
+	help := "/:search  enter:play  m/space:toggle  u:copy-url  j/k:navigate  pgup/pgdn:page  g/G:top/bottom  q/esc/b:back"
 	s += statusStyle.Render(help) + "\n"
 
 	return s
